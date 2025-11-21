@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartBin Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/mqtt@5.0.5/dist/mqtt.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: '#f8fafc',
+              100: '#f1f5f9',
+              200: '#e2e8f0',
+              300: '#cbd5e1',
+              400: '#94a3b8',
+              500: '#64748b',
+              600: '#475569',
+              700: '#334155',
+              800: '#1e293b',
+              900: '#0f172a',
+            },
+            accent: {
+              400: '#a5f3fc',
+              500: '#67e8f9',
+              600: '#22d3ee',
+              700: '#06b6d4',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8fafc;
+    }
+    
+    .dark body {
+      background-color: #0f172a;
+    }
+    
+    .glass-card {
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
+    }
+    
+    .dark .glass-card {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(30, 41, 59, 0.5);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+    }
+    
+    .gauge-chart {
+      max-height: 120px;
+    }
+    
+    .status-badge {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .alert-item {
+      animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .neumorphic-btn {
+      box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.1),
+                 -3px -3px 6px rgba(255, 255, 255, 0.8);
+      transition: all 0.3s ease;
+    }
+    
+    .dark .neumorphic-btn {
+      box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.3),
+                 -3px -3px 6px rgba(30, 41, 59, 0.5);
+    }
+    
+    .neumorphic-btn:hover {
+      box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1),
+                 -2px -2px 4px rgba(255, 255, 255, 0.8);
+      transform: translateY(1px);
+    }
+    
+    .dark .neumorphic-btn:hover {
+      box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3),
+                 -2px -2px 4px rgba(30, 41, 59, 0.5);
+    }
+    
+    .neumorphic-btn:active {
+      box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.1),
+                 inset -2px -2px 4px rgba(255, 255, 255, 0.8);
+    }
+    
+    .dark .neumorphic-btn:active {
+      box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.3),
+                 inset -2px -2px 4px rgba(30, 41, 59, 0.5);
+    }
+    
+    .dark-mode-toggle {
+      position: relative;
+      width: 48px;
+      height: 24px;
+      border-radius: 12px;
+      background-color: #e2e8f0;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    
+    .dark .dark-mode-toggle {
+      background-color: #334155;
+    }
+    
+    .dark-mode-toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background-color: white;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      transition: all 0.3s ease;
+    }
+    
+    .dark .dark-mode-toggle::after {
+      transform: translateX(24px);
+      background-color: #0f172a;
+    }
+  </style>
+</head>
+<body class="bg-primary-50 min-h-screen dark:bg-primary-900">
+  <div class="container mx-auto px-4 py-8 max-w-6xl">
+    <!-- Header -->
+    <header class="mb-10 text-center relative">
+      <div class="absolute top-0 right-0 flex items-center space-x-2">
+        <i class="fas fa-sun text-yellow-400 dark:text-yellow-300"></i>
+        <div id="darkModeToggle" class="dark-mode-toggle"></div>
+        <i class="fas fa-moon text-blue-400 dark:text-blue-300"></i>
+      </div>
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-accent-500 to-accent-600 shadow-lg mb-4">
+        <i class="fas fa-trash-alt text-white text-2xl"></i>
+      </div>
+      <h1 class="text-3xl font-bold text-primary-800 dark:text-primary-100 tracking-tight">
+        SmartBin Dashboard
+      </h1>
+      <p class="text-primary-500 dark:text-primary-300 mt-2">Real-time organic waste monitoring system</p>
+    </header>
+
+    <!-- Main Content -->
+    <div class="space-y-6">
+      <!-- Control Panel -->
+      <section class="glass-card rounded-2xl p-6">
+        <h2 class="text-xl font-semibold text-primary-700 dark:text-primary-200 mb-5 flex items-center">
+          <i class="fas fa-sliders-h text-accent-600 mr-3"></i> 
+          <span class="border-b-2 border-accent-400 pb-1">Controls</span>
+        </h2>
+        <div class="flex flex-wrap gap-4">
+          <button onclick="sendCommand({lock: 'lock'})" 
+                  class="neumorphic-btn bg-white dark:bg-primary-800 text-primary-700 dark:text-primary-200 px-5 py-3 rounded-xl flex items-center">
+            <i class="fas fa-lock mr-3 text-accent-600"></i> 
+            <span>Lock Bin</span>
+          </button>
+          <button onclick="sendCommand({lock: 'unlock'})" 
+                  class="neumorphic-btn bg-white dark:bg-primary-800 text-primary-700 dark:text-primary-200 px-5 py-3 rounded-xl flex items-center">
+            <i class="fas fa-unlock mr-3 text-green-500"></i> 
+            <span>Unlock Bin</span>
+          </button>
+          <button onclick="sendCommand({beep: true})" 
+                  class="neumorphic-btn bg-white dark:bg-primary-800 text-primary-700 dark:text-primary-200 px-5 py-3 rounded-xl flex items-center">
+            <i class="fas fa-bell mr-3 text-yellow-500"></i> 
+            <span>Sound Alarm</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Status Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <!-- Fill Level -->
+        <section class="glass-card rounded-2xl p-6">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-lg font-semibold text-primary-700 dark:text-primary-200 flex items-center">
+              <i class="fas fa-tachometer-alt text-accent-600 mr-3"></i>
+              <span>Fill Level</span>
+            </h2>
+            <span class="text-xs font-medium px-2 py-1 rounded-full bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-200">
+              LIVE
+            </span>
+          </div>
+          <div class="gauge-chart">
+            <canvas id="fillChart"></canvas>
+          </div>
+          <p class="text-center text-4xl font-bold text-primary-800 dark:text-primary-100 mt-5" id="fillPct">-</p>
+          <p class="text-center text-primary-500 dark:text-primary-300 text-sm mt-1">Current capacity</p>
+        </section>
+
+        <!-- Temperature -->
+        <section class="glass-card rounded-2xl p-6">
+          <h2 class="text-lg font-semibold text-primary-700 dark:text-primary-200 mb-5 flex items-center">
+            <i class="fas fa-thermometer-half text-red-400 mr-3"></i>
+            <span>Temperature</span>
+          </h2>
+          <div class="flex items-end justify-center space-x-1">
+            <p class="text-center text-4xl font-bold text-primary-800 dark:text-primary-100" id="temp">-</p>
+            <p class="text-center text-primary-500 dark:text-primary-300 text-xl mb-2">°C</p>
+          </div>
+          <div class="mt-6 h-3 bg-gradient-to-r from-blue-400 via-red-400 to-yellow-400 rounded-full"></div>
+        </section>
+
+        <!-- Humidity -->
+        <section class="glass-card rounded-2xl p-6">
+          <h2 class="text-lg font-semibold text-primary-700 dark:text-primary-200 mb-5 flex items-center">
+            <i class="fas fa-tint text-blue-400 mr-3"></i>
+            <span>Humidity</span>
+          </h2>
+          <div class="flex items-end justify-center space-x-1">
+            <p class="text-center text-4xl font-bold text-primary-800 dark:text-primary-100" id="hum">-</p>
+            <p class="text-center text-primary-500 dark:text-primary-300 text-xl mb-2">% RH</p>
+          </div>
+          <div class="mt-6 h-3 bg-gradient-to-r from-blue-100 via-blue-300 to-blue-500 rounded-full"></div>
+        </section>
+
+        <!-- Distance -->
+        <section class="glass-card rounded-2xl p-6">
+          <div class="flex items-center justify-between mb-5">
+            <h2 class="text-lg font-semibold text-primary-700 dark:text-primary-200 flex items-center">
+              <i class="fas fa-ruler-vertical text-accent-600 mr-3"></i>
+              <span>Distance</span>
+            </h2>
+            <span class="text-xs font-medium px-2 py-1 rounded-full bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-200">
+              LIVE
+            </span>
+          </div>
+          <p class="text-center text-4xl font-bold text-primary-800 dark:text-primary-100 mt-5" id="distCm">-</p>
+          <p class="text-center text-primary-500 dark:text-primary-300 text-sm mt-1">cm</p>
+        </section>
+      </div>
+
+      <!-- Security Status -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <section class="glass-card rounded-2xl p-6">
+          <h2 class="text-lg font-semibold text-primary-700 dark:text-primary-200 mb-5 flex items-center">
+            <i class="fas fa-shield-alt text-purple-400 mr-3"></i>
+            <span>Lock Status</span>
+          </h2>
+          <div class="space-y-4">
+            <div class="flex justify-between items-center p-3 bg-primary-50 dark:bg-primary-800 rounded-lg">
+              <span class="text-primary-600 dark:text-primary-300 font-medium">Status:</span>
+              <span id="lock" class="status-badge px-3 py-1 rounded-full text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
+                <i class="fas fa-question-circle mr-1"></i> Unknown
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <section class="glass-card rounded-2xl p-6">
+          <h2 class="text-lg font-semibold text-primary-700 dark:text-primary-200 mb-5 flex items-center">
+            <i class="fas fa-shield-alt text-purple-400 mr-3"></i>
+            <span>Tamper Detection</span>
+          </h2>
+          <div class="space-y-4">
+            <div class="flex justify-between items-center p-3 bg-primary-50 dark:bg-primary-800 rounded-lg">
+              <span class="text-primary-600 dark:text-primary-300 font-medium">Status:</span>
+              <span id="tamper" class="status-badge px-3 py-1 rounded-full text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
+                <i class="fas fa-question-circle mr-1"></i> Unknown
+              </span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Connection Status -->
+      <div class="grid grid-cols-1">
+        <section class="glass-card rounded-2xl p-6">
+          <h2 class="text-lg font-semibold text-primary-700 dark:text-primary-200 mb-5 flex items-center">
+            <i class="fas fa-wifi text-green-400 mr-3"></i>
+            <span>Connection</span>
+          </h2>
+          <div class="flex justify-between items-center p-3 bg-primary-50 dark:bg-primary-800 rounded-lg">
+            <span class="text-primary-600 dark:text-primary-300 font-medium">MQTT Status:</span>
+            <span id="mqttStatus" class="status-badge px-3 py-1 rounded-full text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
+              <i class="fas fa-circle-notch fa-spin mr-1"></i> Connecting...
+            </span>
+          </div>
+          <div class="mt-4 text-sm text-primary-500 dark:text-primary-300 space-y-1">
+            <p class="flex items-center">
+              <i class="fas fa-server mr-2"></i>
+              <span>broker.hivemq.com</span>
+            </p>
+            <p class="flex items-center">
+              <i class="fas fa-microchip mr-2"></i>
+              <span>SMARTBIN_DEMO_001</span>
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <!-- Alerts -->
+      <section class="glass-card rounded-2xl p-6">
+        <div class="flex items-center justify-between mb-5">
+          <h2 class="text-lg font-semibold text-primary-700 dark:text-primary-200 flex items-center">
+            <i class="fas fa-bell text-yellow-400 mr-3"></i>
+            <span>Recent Alerts</span>
+          </h2>
+          <span class="text-xs font-medium px-2 py-1 rounded-full bg-accent-100 dark:bg-accent-900 text-accent-700 dark:text-accent-200">
+            LAST 5 ALERTS
+          </span>
+        </div>
+        <div class="space-y-3" id="alertsContainer">
+          <div class="text-center py-10 text-primary-400 dark:text-primary-500" id="noAlerts">
+            <i class="fas fa-inbox text-4xl mb-3 opacity-50"></i>
+            <p class="font-medium">No alerts received yet</p>
+            <p class="text-sm mt-1">System alerts will appear here</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    // Dark Mode Toggle
+    const darkModeToggle = document.getElementById('darkModeToggle');
+    const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+    
+    // Check for saved preference or system preference
+    const currentTheme = localStorage.getItem('theme') || 
+                        (prefersDarkScheme.matches ? 'dark' : 'light');
+    if (currentTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    }
+    
+    darkModeToggle.addEventListener('click', () => {
+      const isDark = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      
+      // Update chart colors when toggling dark mode
+      updateChartColors();
+    });
+    
+    function updateChartColors() {
+      const isDark = document.documentElement.classList.contains('dark');
+      fillChart.data.datasets[0].backgroundColor = [
+        '#06b6d4', 
+        isDark ? '#1e293b' : '#e2e8f0'
+      ];
+      fillChart.update();
+    }
+
+    // MQTT Configuration
+    const client = mqtt.connect('ws://broker.hivemq.com:8000/mqtt', {
+      clientId: 'dashboard_' + Math.random().toString(16).substr(2, 8),
+      clean: true,
+      reconnectPeriod: 1000
+    });
+
+    // Initialize Fill Level Gauge
+    const fillCtx = document.getElementById('fillChart').getContext('2d');
+    const fillChart = new Chart(fillCtx, {
+      type: 'doughnut',
+      data: {
+        datasets: [{
+          data: [0, 100],
+          backgroundColor: ['#06b6d4', '#e2e8f0'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        circumference: 180,
+        rotation: 270,
+        cutout: '80%',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false }
+        }
+      }
+    });
+
+    // Update telemetry display
+    function updateTelemetry(data) {
+      // Fill Level
+      const fillPct = data.fill_pct !== undefined ? data.fill_pct : 0;
+      document.getElementById('fillPct').textContent = `${Math.round(fillPct)}%`;
+      fillChart.data.datasets[0].data = [fillPct, Math.max(100 - fillPct, 0)];
+      fillChart.update();
+
+      // Temperature & Humidity
+      document.getElementById('temp').textContent = data.temp_c !== undefined ? 
+        `${data.temp_c.toFixed(1)}` : '-';
+      document.getElementById('hum').textContent = data.hum_pct !== undefined ? 
+        `${data.hum_pct.toFixed(1)}` : '-';
+
+      // Distance
+      document.getElementById('distCm').textContent = data.dist_cm !== undefined ? 
+        `${data.dist_cm.toFixed(1)}` : '-';
+
+      // Lock Status
+      const lockBadge = document.getElementById('lock');
+      if (data.lock !== undefined) {
+        lockBadge.innerHTML = data.lock ? 
+          '<i class="fas fa-lock mr-1"></i> Locked' : 
+          '<i class="fas fa-unlock mr-1"></i> Unlocked';
+        lockBadge.className = `status-badge px-3 py-1 rounded-full text-sm font-medium ${
+          data.lock ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' : 
+                     'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+        }`;
+      }
+
+      // Tamper Status
+      const tamperBadge = document.getElementById('tamper');
+      if (data.tamper !== undefined) {
+        tamperBadge.innerHTML = data.tamper ? 
+          '<i class="fas fa-exclamation-triangle mr-1"></i> Triggered' : 
+          '<i class="fas fa-check-circle mr-1"></i> Normal';
+        tamperBadge.className = `status-badge px-3 py-1 rounded-full text-sm font-medium ${
+          data.tamper ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' : 
+                        'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+        }`;
+      }
+    }
+
+    // Add new alert
+    function addAlert(data) {
+      const container = document.getElementById('alertsContainer');
+      const noAlerts = document.getElementById('noAlerts');
+      
+      if (noAlerts) noAlerts.remove();
+      
+      const alertTime = new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Kathmandu' });
+      
+      const alertEl = document.createElement('div');
+      alertEl.className = 'alert-item bg-white dark:bg-primary-800 p-4 rounded-xl border-l-4 border-accent-500 shadow-sm';
+      alertEl.innerHTML = `
+        <div class="flex items-start">
+          <div class="flex-shrink-0 pt-1">
+            <div class="w-8 h-8 rounded-full flex items-center justify-center ${
+              data.type === 'FULL' ? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900 dark:text-yellow-300' : 
+              data.type === 'TAMPER' ? 'bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300' : 
+              data.type === 'TEMP' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-300' :
+              'bg-primary-100 text-primary-600 dark:bg-primary-700 dark:text-primary-300'
+            }">
+              <i class="fas fa-${
+                data.type === 'FULL' ? 'exclamation-triangle' : 
+                data.type === 'TAMPER' ? 'shield-alt' : 
+                data.type === 'TEMP' ? 'thermometer-half' :
+                'info-circle'
+              }"></i>
+            </div>
+          </div>
+          <div class="ml-3 flex-1">
+            <div class="flex justify-between">
+              <h3 class="text-sm font-semibold text-primary-800 dark:text-primary-100">${data.type || 'Alert'}</h3>
+              <span class="text-xs text-primary-400 dark:text-primary-500">${alertTime}</span>
+            </div>
+            <p class="text-sm text-primary-600 dark:text-primary-300 mt-1">${data.msg || 'No details available'}</p>
+          </div>
+        </div>
+      `;
+      
+      container.insertBefore(alertEl, container.firstChild);
+      
+      // Limit to 5 alerts
+      if (container.children.length > 5) {
+        container.removeChild(container.lastChild);
+      }
+    }
+
+    // Send command to SmartBin
+    function sendCommand(command) {
+      client.publish('smartbin/commands', JSON.stringify(command), { qos: 1 }, (err) => {
+        if (err) console.error('Publish error:', err);
+        else console.log('Command sent:', JSON.stringify(command));
+      });
+      
+      // Visual feedback
+      const button = event.target.closest('button');
+      if (button) {
+        button.classList.add('transform', 'scale-95');
+        setTimeout(() => {
+          button.classList.remove('transform', 'scale-95');
+        }, 150);
+      }
+    }
+
+    // MQTT Event Handlers
+    client.on('connect', () => {
+      console.log('Connected to MQTT');
+      document.getElementById('mqttStatus').innerHTML = 
+        '<i class="fas fa-check-circle mr-1"></i> Connected';
+      document.getElementById('mqttStatus').className = 
+        'status-badge px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      
+      client.subscribe(['smartbin/telemetry', 'smartbin/alerts'], { qos: 1 }, (err) => {
+        if (err) console.error('Subscribe error:', err);
+        else console.log('Subscribed to smartbin/telemetry and smartbin/alerts');
+      });
+    });
+
+    client.on('message', (topic, message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        console.log('Received message on', topic, ':', data);
+        if (topic === 'smartbin/telemetry') updateTelemetry(data);
+        if (topic === 'smartbin/alerts') addAlert(data);
+      } catch (e) {
+        console.error('Error parsing message:', e);
+      }
+    });
+
+    client.on('error', (err) => {
+      console.error('MQTT error:', err);
+      document.getElementById('mqttStatus').innerHTML = 
+        '<i class="fas fa-times-circle mr-1"></i> Error';
+      document.getElementById('mqttStatus').className = 
+        'status-badge px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+    });
+
+    client.on('offline', () => {
+      console.log('MQTT offline');
+      document.getElementById('mqttStatus').innerHTML = 
+        '<i class="fas fa-plug mr-1"></i> Disconnected';
+      document.getElementById('mqttStatus').className = 
+        'status-badge px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+    });
+  </script>
+</body>
+</html>
