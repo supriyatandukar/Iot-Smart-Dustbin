@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Bin Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8fafc;
+    }
+    
+    .card {
+      transition: all 0.2s ease;
+      border-radius: 12px;
+      background: white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      border: 1px solid rgba(0,0,0,0.03);
+    }
+    
+    .card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.08);
+    }
+    
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    
+    .chart-container {
+      height: 220px;
+      position: relative;
+    }
+    
+    .btn-control {
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    
+    .btn-control:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    .fill-indicator {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: #e5e7eb;
+      overflow: hidden;
+    }
+    
+    .fill-progress {
+      height: 100%;
+      transition: width 0.5s ease;
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div class="container mx-auto px-4 py-8 max-w-6xl">
+    <!-- Header -->
+    <div class="flex flex-col items-center mb-8">
+      <div class="flex items-center mb-2">
+        <div class="w-3 h-3 rounded-full bg-green-400 mr-2"></div>
+        <h1 class="text-2xl font-semibold text-gray-800">Smart Bin Dashboard</h1>
+      </div>
+      <p class="text-sm text-gray-500">Last updated: <span id="lastUpdate">Just now</span></p>
+    </div>
+    
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
+      <!-- Bin Status Card -->
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-base font-medium text-gray-700">Bin Status</h2>
+          <span id="lidStatus" class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Closed</span>
+        </div>
+        <div class="space-y-3">
+          <div>
+            <p class="text-2xl font-light text-gray-800"><span id="distance">0</span><span class="text-base text-gray-500 ml-0.5">cm</span></p>
+            <p class="text-xs text-gray-500 mt-1">Distance to contents</p>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs text-gray-500">Fill level</span>
+              <span class="text-xs font-medium"><span id="fillPercentage">0</span>%</span>
+            </div>
+            <div class="fill-indicator">
+              <div id="fillProgress" class="fill-progress bg-blue-500" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Environmental Data -->
+      <div class="card p-5">
+        <h2 class="text-base font-medium text-gray-700 mb-4">Environment</h2>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center">
+              <svg class="w-4 h-4 text-blue-500 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              <span class="text-xs text-gray-500">Temperature</span>
+            </div>
+            <p class="text-xl font-light text-gray-800"><span id="temperature">0.0</span><span class="text-sm text-gray-500 ml-0.5">°C</span></p>
+          </div>
+          <div class="space-y-1">
+            <div class="flex items-center">
+              <svg class="w-4 h-4 text-blue-500 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path>
+              </svg>
+              <span class="text-xs text-gray-500">Humidity</span>
+            </div>
+            <p class="text-xl font-light text-gray-800"><span id="humidity">0.0</span><span class="text-sm text-gray-500 ml-0.5">%</span></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="card p-5">
+        <h2 class="text-base font-medium text-gray-700 mb-3">Controls</h2>
+        <div class="space-y-2">
+          <button id="openBtn" class="btn-control w-full py-2 px-4 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium flex items-center justify-center">
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+            </svg>
+            Open Lid
+          </button>
+          <button id="closeBtn" class="btn-control w-full py-2 px-4 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium flex items-center justify-center">
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+            </svg>
+            Close Lid
+          </button>
+        </div>
+        <div class="mt-4 pt-3 border-t border-gray-100">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-500">Alarm Status</span>
+            <span id="alarmStatus" class="text-xs font-medium text-gray-700">No Alarm</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart Section -->
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-base font-medium text-gray-700">Distance Trend</h2>
+        <span class="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded-full">Live</span>
+      </div>
+      <div class="chart-container">
+        <canvas id="distanceChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // MQTT Client Setup
+    const clientId = 'web_' + Math.random().toString(16).substr(2, 8);
+    const client = new Paho.MQTT.Client('broker.hivemq.com', 8000, clientId);
+    
+    // Chart Setup
+    const ctx = document.getElementById('distanceChart').getContext('2d');
+    const distanceChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Distance (cm)',
+          data: [],
+          borderColor: '#3B82F6',
+          backgroundColor: 'rgba(59, 130, 246, 0.05)',
+          borderWidth: 2,
+          tension: 0.2,
+          fill: true,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 6 }
+          },
+          y: {
+            beginAtZero: true,
+            max: 200,
+            grid: { drawBorder: false },
+            ticks: { stepSize: 50 }
+          }
+        },
+        interaction: { intersect: false }
+      }
+    });
+
+    // Update fill level display
+    function updateFillLevel(distance) {
+      const fillPercentage = Math.min(100, Math.max(0, 100 - (distance / 200 * 100)));
+      document.getElementById('fillPercentage').textContent = Math.round(fillPercentage);
+      
+      const progress = document.getElementById('fillProgress');
+      progress.style.width = fillPercentage + '%';
+      
+      // Update color based on fill level
+      if (fillPercentage > 75) {
+        progress.className = 'fill-progress bg-red-500';
+      } else if (fillPercentage > 50) {
+        progress.className = 'fill-progress bg-yellow-500';
+      } else {
+        progress.className = 'fill-progress bg-blue-500';
+      }
+    }
+
+    client.onConnectionLost = function(responseObject) {
+      if (responseObject.errorCode !== 0) {
+        console.log('Connection Lost: ' + responseObject.errorMessage);
+      }
+    };
+
+    client.onMessageArrived = function(message) {
+      const now = new Date();
+      const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      document.getElementById('lastUpdate').textContent = timeString;
+      
+      const topic = message.destinationName;
+      const payload = message.payloadString;
+
+      if (topic === 'group3/supriya/smarthome/distance/raw') {
+        const distance = parseInt(payload);
+        document.getElementById('distance').textContent = distance;
+        updateFillLevel(distance);
+        updateChart(distance, timeString);
+      } 
+      else if (topic === 'supriya/esp32/bin/status') {
+        const statusElement = document.getElementById('lidStatus');
+        statusElement.textContent = payload.charAt(0).toUpperCase() + payload.slice(1);
+        
+        // Update status color
+        statusElement.className = 'px-2.5 py-0.5 rounded-full text-xs font-medium ' + 
+          (payload === 'open' ? 'bg-green-100 text-green-800' : 
+           payload === 'warning' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800');
+      } 
+      else if (topic === 'supriya/esp32/alarm') {
+        document.getElementById('alarmStatus').textContent = payload;
+        setTimeout(() => {
+          document.getElementById('alarmStatus').textContent = 'No Alarm';
+        }, 5000);
+      }
+    };
+
+    function updateChart(distance, timeLabel) {
+      if (distanceChart.data.labels.length >= 15) {
+        distanceChart.data.labels.shift();
+        distanceChart.data.datasets[0].data.shift();
+      }
+      
+      distanceChart.data.labels.push(timeLabel);
+      distanceChart.data.datasets[0].data.push(distance);
+      distanceChart.update();
+    }
+
+    // Control Buttons
+    document.getElementById('openBtn').addEventListener('click', () => {
+      const message = new Paho.MQTT.Message('open');
+      message.destinationName = 'group3/supriya/smarthome/bin/control';
+      client.send(message);
+    });
+
+    document.getElementById('closeBtn').addEventListener('click', () => {
+      const message = new Paho.MQTT.Message('close');
+      message.destinationName = 'group3/supriya/smarthome/bin/control';
+      client.send(message);
+    });
+
+    // Initialize connection
+    client.connect({
+      onSuccess: function() {
+        console.log('Connected to MQTT');
+        client.subscribe('group3/supriya/smarthome/distance/raw');
+        client.subscribe('supriya/esp32/bin/status');
+        client.subscribe('supriya/esp32/alarm');
+      }
+    });
+
+    // Simulated temperature and humidity updates
+    setInterval(() => {
+      const temp = (20 + Math.random() * 10).toFixed(1);
+      const hum = (40 + Math.random() * 20).toFixed(1);
+      document.getElementById('temperature').textContent = temp;
+      document.getElementById('humidity').textContent = hum;
+    }, 5000);
+  </script>
+</body>
+</html>
